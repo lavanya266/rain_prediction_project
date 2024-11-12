@@ -291,7 +291,7 @@ html_content = f"""
 # mlflow
 
 # Set up MLflow tracking URI and experiment name
-mlflow.set_tracking_uri("http://44.204.113.135:5000")
+mlflow.set_tracking_uri("http://localhost:5000")
 mlflow.set_experiment("rain_prediction")
 
 # Start an MLflow run
