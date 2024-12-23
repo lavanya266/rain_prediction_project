@@ -1,5 +1,5 @@
 # Use the official Python image from the Docker Hub
-FROM python:3.10
+FROM python:3.10.12
 
 # Add metadata with labels
 LABEL maintainer="end to end mlops project"
@@ -19,4 +19,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5000
 
 # Define the command to run the application
-CMD ["python", "src/rainprediction.py"]
+CMD ["python", "src/mlopsproject.py"]
