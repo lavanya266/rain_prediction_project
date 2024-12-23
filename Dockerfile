@@ -4,7 +4,7 @@ FROM python:3.10.12
 # Add metadata with labels
 LABEL maintainer="end to end mlops project"
 LABEL version="1.0"
-LABEL description="This is a Docker image for the rain prediction ML model."
+LABEL description="This is a Docker image for the rain prediction ML model with MLflow integration."
 
 # Set the working directory in the container
 WORKDIR /app
@@ -15,8 +15,11 @@ COPY . .
 # Install any dependencies listed in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose a different port to avoid conflict with Jenkins
+# Expose the correct port for MLflow server (5001)
 EXPOSE 5001
 
-# Define the command to run the application
-CMD ["python", "src/mlopsproject.py"]
+# Set the MLflow tracking URI (if needed)
+ENV MLFLOW_TRACKING_URI=http://localhost:5001
+
+# Define the command to run the application or MLflow server
+CMD ["mlflow", "server", "--backend-store-uri", "sqlite:///mlflow.db", "--default-artifact-root", "./artifacts", "--host", "0.0.0.0", "--port", "5001"]
