@@ -15,7 +15,7 @@ COPY . .
 # Install any dependencies listed in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the correct port for MLflow server (5001)
+# Expose the correct port for MLflow server (5002)
 EXPOSE 5002
 
 # Set the MLflow tracking URI (if needed)
