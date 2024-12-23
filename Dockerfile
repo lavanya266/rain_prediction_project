@@ -15,11 +15,11 @@ COPY . .
 # Install any dependencies listed in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the correct port for MLflow server (5002)
-EXPOSE 5002
+# Expose the correct port for MLflow server (
+EXPOSE 5000
 
 # Set the MLflow tracking URI (if needed)
-ENV MLFLOW_TRACKING_URI=http://172.16.51.127:5002
+ENV MLFLOW_TRACKING_URI=http://172.16.51.127:5001
 
 # Define the command to run the application or MLflow server
-CMD ["mlflow", "server", "--backend-store-uri", "sqlite:///mlflow.db", "--default-artifact-root", "./artifacts", "--host", "0.0.0.0", "--port", "5002"]
+CMD ["mlflow", "server", "--backend-store-uri", "sqlite:///mlflow.db", "--default-artifact-root", "./artifacts", "--host", "0.0.0.0", "--port", "5001"]
