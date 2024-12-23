@@ -16,7 +16,7 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose the correct port for MLflow server (
-EXPOSE 5001
+EXPOSE 5002
 
 # Set the MLflow tracking URI (if needed)
 ENV MLFLOW_TRACKING_URI=http://172.16.51.127:5002
