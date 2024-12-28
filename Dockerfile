@@ -34,4 +34,4 @@ COPY . .
 EXPOSE 5002
 
 # Run the application
-CMD ["python", "newmlops.py"]
+#CMD ["python", "newmlops.py"]
