@@ -2,16 +2,21 @@
 FROM tensorflow/tensorflow:2.12.0
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Install required system packages
 RUN apt-get update && apt-get install -y \
     wget \
     python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Create and activate virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Install dependencies inside virtual environment
 COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 RUN pip install --upgrade pip \
