@@ -1,338 +1,283 @@
+import os
+import requests
+from datetime import datetime
 import numpy as np
-import sys
-import pandas as pd
+
+ 
 import mlflow
 import mlflow.keras
-
-
+from mlflow.tracking import MlflowClient
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.applications import MobileNet
+from datetime import datetime
 import matplotlib.pyplot as plt
-import seaborn as sns
-import datetime
-from sklearn.preprocessing import LabelEncoder
-from sklearn import preprocessing
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-import seaborn as sns
-from keras.layers import Dense, BatchNormalization, Dropout, LSTM
-from keras.models import Sequential
-from keras.utils import to_categorical
-from keras.optimizers import Adam
-from tensorflow.keras import regularizers
-from sklearn.metrics import precision_score, recall_score, confusion_matrix, classification_report, accuracy_score, f1_score
-from keras import callbacks
+from bing_image_downloader import downloader
+from pathlib import Path
+import imghdr
 
-np.random.seed(0)
 
-# Check if running in Google Colab, and handle accordingly (Optional)
-if 'google.colab' in sys.modules:
-    from google.colab import drive
-    drive.mount('/content/drive', force_remount=True)
-    DIR = '/content/drive/MyDrive/kaagle'
-    file_loc = DIR + "/weatherAUS.csv"
-else:
-    # If not in Google Colab, set the file location to the local dataset
-    file_loc = 'data/dataset.csv'
+image_path = "./data/cat_dogs/"
+# def download_images(query, limit, output_dir):
+#     downloader.download(query,
+#                           limit=limit,
+#                           output_dir=output_dir,
+#                           adult_filter_off=True,
+#                           force_replace=False,
+#                           timeout=60)
+# download_images("cat", 20, image_path)
+# download_images("dog", 20, image_path)
 
-chunk_size = 10000
-chunks = []    
-for chunk in pd.read_csv(file_loc, chunksize=chunk_size):
-    print(chunk.head())
-    chunks.append(chunk)
-    del chunk
+ 
+
+for category in ["cat","dog"]:
+    data_dir = os.path.join(image_path, category)
+    image_extensions = [".png", ".jpg"]  # add there all your images file extensions
+
+    img_type_accepted_by_tf = ["bmp", "gif", "jpeg", "png"]
+    for filepath in Path(data_dir).rglob("*"):
+        if filepath.suffix.lower() in image_extensions:
+            img_type = imghdr.what(filepath)
+            if img_type is None:
+                print(f"{filepath} is not an image")
+            elif img_type not in img_type_accepted_by_tf:
+                print(f"{filepath} is a {img_type}, not accepted by TensorFlow")
+
+ 
+
+# Define hyperparameters and input data
+
+learning_rate = 0.01
+num_epochs = 15
+batch_size = 32
+input_shape = (224, 224, 3)
+
+ 
+
+# Define names for tensorboard logging and mlflow
+
+experiment_name = "cat-dog-classifier-mobilenet"
+run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+ 
+
 # Load the dataset
-#data = pd.read_csv(file_loc)
-#data.head()
-data = pd.concat(chunks, ignore_index=True)
-data.info()
 
-#first of all let us evaluate the target and find out if our data is imbalanced or not
-cols= ["#C2C4E2","#EED4E5"]
-sns.countplot(x= data["RainTomorrow"], palette= cols)
-
-lengths = data["Date"].str.len()
-lengths.value_counts()
-
-#There don't seem to be any error in dates so parsing values into datetime
-data['Date']= pd.to_datetime(data["Date"])
-#Creating a collumn of year
-data['year'] = data.Date.dt.year
-
-# function to encode datetime into cyclic parameters.
-#As I am planning to use this data in a neural network I prefer the months and days in a cyclic continuous feature.
-
-def encode(data, col, max_val):
-    data[col + '_sin'] = np.sin(2 * np.pi * data[col]/max_val)
-    data[col + '_cos'] = np.cos(2 * np.pi * data[col]/max_val)
-    return data
-
-data['month'] = data.Date.dt.month
-data = encode(data, 'month', 12)
-
-data['day'] = data.Date.dt.day
-data = encode(data, 'day', 31)
-
-data.head()
-
-# roughly a year's span section
-section = data[:360]
-tm = section["day"].plot(color="#C2C4E2")
-tm.set_title("Distribution Of Days Over Year")
-tm.set_ylabel("Days In month")
-tm.set_xlabel("Days In Year")
-
-cyclic_month = sns.scatterplot(x="month_sin",y="month_cos",data=data, color="#C2C4E2")
-cyclic_month.set_title("Cyclic Encoding of Month")
-cyclic_month.set_ylabel("Cosine Encoded Months")
-cyclic_month.set_xlabel("Sine Encoded Months")
-
-cyclic_day = sns.scatterplot(x='day_sin',y='day_cos',data=data, color="#C2C4E2")
-cyclic_day.set_title("Cyclic Encoding of Day")
-cyclic_day.set_ylabel("Cosine Encoded Day")
-cyclic_day.set_xlabel("Sine Encoded Day")
-
-# Get list of categorical variables
-s = (data.dtypes == "object")
-object_cols = list(s[s].index)
-
-print("Categorical variables:")
-print(object_cols)
-
-# Missing values in categorical variables
-
-for i in object_cols:
-    print(i, data[i].isnull().sum())
-
-# Filling missing values with mode of the column in value
-
-for i in object_cols:
-    data[i].fillna(data[i].mode()[0], inplace=True)
-
-# Get list of neumeric variables
-t = (data.dtypes == "float64")
-num_cols = list(t[t].index)
-
-print("Neumeric variables:")
-print(num_cols)
-
-# Missing values in numeric variables
-
-for i in num_cols:
-    print(i, data[i].isnull().sum())
-
-# Filling missing values with median of the column in value
-
-for i in num_cols:
-    data[i].fillna(data[i].median(), inplace=True)
-
-data.info()
-
-# Apply label encoder to each column with categorical data
-label_encoder = LabelEncoder()
-for i in object_cols:
-    data[i] = label_encoder.fit_transform(data[i])
-
-data.info()
-
-# Prepairing attributes of scale data
-
-features = data.drop(['RainTomorrow', 'Date','day', 'month'], axis=1) # dropping target and extra columns
-
-target = data['RainTomorrow']
-
-#Set up a standard scaler for the features
-col_names = list(features.columns)
-s_scaler = preprocessing.StandardScaler()
-features = s_scaler.fit_transform(features)
-features = pd.DataFrame(features, columns=col_names)
-
-features.describe().T
-
-#Detecting outliers
-#looking at the scaled features
-colours = ["#D0DBEE", "#C2C4E2", "#EED4E5", "#D1E6DC", "#BDE2E2"]
-plt.figure(figsize=(20,10))
-sns.boxenplot(data = features,palette = colours)
-plt.xticks(rotation=90)
-plt.show()
-
-#full data for
-features["RainTomorrow"] = target
-
-#Dropping with outlier
-
-features = features[(features["MinTemp"]<2.3)&(features["MinTemp"]>-2.3)]
-features = features[(features["MaxTemp"]<2.3)&(features["MaxTemp"]>-2)]
-features = features[(features["Rainfall"]<4.5)]
-features = features[(features["Evaporation"]<2.8)]
-features = features[(features["Sunshine"]<2.1)]
-features = features[(features["WindGustSpeed"]<4)&(features["WindGustSpeed"]>-4)]
-features = features[(features["WindSpeed9am"]<4)]
-features = features[(features["WindSpeed3pm"]<2.5)]
-features = features[(features["Humidity9am"]>-3)]
-features = features[(features["Humidity3pm"]>-2.2)]
-features = features[(features["Pressure9am"]< 2)&(features["Pressure9am"]>-2.7)]
-features = features[(features["Pressure3pm"]< 2)&(features["Pressure3pm"]>-2.7)]
-features = features[(features["Cloud9am"]<1.8)]
-features = features[(features["Cloud3pm"]<2)]
-features = features[(features["Temp9am"]<2.3)&(features["Temp9am"]>-2)]
-features = features[(features["Temp3pm"]<2.3)&(features["Temp3pm"]>-2)]
-
-
-features.shape
-
-#looking at the scaled features without outliers
-
-plt.figure(figsize=(20,10))
-sns.boxenplot(data = features,palette = colours)
-plt.xticks(rotation=90)
-plt.show()
-
-X = features.drop(["RainTomorrow"], axis=1)
-y = features["RainTomorrow"]
-
-# Splitting test and training sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 42)
-
-X.shape
-
-#Early stopping
-early_stopping = callbacks.EarlyStopping(
-    min_delta=0.001, # minimium amount of change to count as an improvement
-    patience=8, # how many epochs to wait before stopping
-    restore_best_weights=True,
+train_dataset = keras.preprocessing.image_dataset_from_directory(
+    image_path,
+    validation_split=0.1,
+    subset="training",
+    seed=1337,
+    image_size=input_shape[:2],
+    batch_size=batch_size,
 )
 
-# Initialising the NN
-model = Sequential()
+ 
 
-# layers
+val_dataset = keras.preprocessing.image_dataset_from_directory(
+    image_path,
+    validation_split=0.2,
+    subset="validation",
+    seed=1337,
+    image_size=input_shape[:2],
+    batch_size=batch_size,
+)
 
-model.add(Dense(units = 32, kernel_initializer = 'uniform', activation = 'relu', input_dim = 26))
-model.add(Dense(units = 32, kernel_initializer = 'uniform', activation = 'relu'))
-model.add(Dense(units = 16, kernel_initializer = 'uniform', activation = 'relu'))
-model.add(Dropout(0.25))
-model.add(Dense(units = 8, kernel_initializer = 'uniform', activation = 'relu'))
-model.add(Dropout(0.5))
-model.add(Dense(units = 1, kernel_initializer = 'uniform', activation = 'sigmoid'))
+ 
 
-# Compiling the ANN
-opt = Adam(learning_rate=0.00009)
-model.compile(optimizer = opt, loss = 'binary_crossentropy', metrics = ['accuracy'])
+# Visualize training images
 
-# Train the ANN
-history = model.fit(X_train, y_train, batch_size = 32, epochs = 150, callbacks=[early_stopping], validation_split=0.2)
+plt.figure(figsize=(10, 10))
+for images, labels in train_dataset.take(1):  # Take a single batch
+    for i in range(min(len(images), 9)):  # Use min() to avoid out-of-bounds
+        ax = plt.subplot(3, 3, i + 1)
+        plt.imshow(images[i].numpy().astype("uint8"))
+        plt.title(int(labels[i]))
+        plt.axis("off")
 
-history_df = pd.DataFrame(history.history)
+ 
 
-plt.plot(history_df.loc[:, ['loss']], "#BDE2E2", label='Training loss')
-plt.plot(history_df.loc[:, ['val_loss']],"#C2C4E2", label='Validation loss')
-plt.title('Training and Validation loss')
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.legend(loc="best")
+# Visualize validation images
 
-plt.show()
+plt.figure(figsize=(10, 10))
+for images, labels in val_dataset.take(1):  # Take a single batch
+    for i in range(min(len(images), 9)):  # Use min() to avoid t-of-bounds
+        ax = plt.subplot(3, 3, i + 1)
+        plt.imshow(images[i].numpy().astype("uint8"))
+        plt.title(int(labels[i]))
+        plt.axis("off")
 
-history_df = pd.DataFrame(history.history)
+ 
 
-plt.plot(history_df.loc[:, ['accuracy']], "#BDE2E2", label='Training accuracy')
-plt.plot(history_df.loc[:, ['val_accuracy']], "#C2C4E2", label='Validation accuracy')
+data_augmentation = keras.Sequential(
+    [
+        keras.layers.RandomFlip("horizontal"),
+        keras.layers.RandomRotation(0.1),
+    ]
+)
 
-plt.title('Training and Validation accuracy')
-plt.xlabel('Epochs')
-plt.ylabel('Accuracy')
-plt.legend()
-plt.show()
+plt.figure(figsize=(10, 10))
+for images, _ in train_dataset.take(1):
+    for i in range(9):
+        augmented_images = data_augmentation(images, training=True)
+        ax = plt.subplot(3, 3, i + 1)
+        plt.imshow(augmented_images[0].numpy().astype("uint8"))
+        plt.axis("off") 
 
-# Predicting the test set results
-y_pred = model.predict(X_test)
-y_pred = (y_pred > 0.5)
-
-# confusion matrix
-cmap1 = sns.diverging_palette(260,-10,s=50, l=75, n=5, as_cmap=True)
-plt.subplots(figsize=(12,8))
-cf_matrix = confusion_matrix(y_test, y_pred)
-sns.heatmap(cf_matrix/np.sum(cf_matrix), cmap = cmap1, annot = True, annot_kws = {'size':15})
-
-print(classification_report(y_test, y_pred))
-# Generate the classification report as a string
-classification_rep = classification_report(y_test, y_pred)
-# Save the confusion matrix plot to a file
-plt.savefig('confusion_matrix.png')
-# Create HTML content with the classification report and embedded image
-html_content = f"""
-<html>
-<head>
-    <title>Classification Report and Confusion Matrix</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; }}
-        table {{ width: 50%; border-collapse: collapse; margin: 20px 0; }}
-        th, td {{ padding: 8px 12px; border: 1px solid #ccc; text-align: left; }}
-        th {{ background-color: #f2f2f2; }}
-        h1 {{ color: #333; }}
-        pre {{ background-color: #f8f8f8; padding: 10px; }}
-        img {{ max-width: 100%; height: auto; }}
-    </style>
-</head>
-<body>
-    <h1>Classification Report v1</h1>
-    <pre>{classification_rep}</pre>
-<!--    <h1>Confusion Matrix</h1>
-    <img src="confusion_matrix.png" alt="Confusion Matrix"> -->
-</body>
-</html>
-"""
-
-# Write the HTML content to a file
-#with open('/var/www/html/classification_report.html', 'w') as file:
-#    file.write(html_content)
+augmented_train_dataset = train_dataset.map(
+    lambda x, y: (data_augmentation(x, training=True), y))
 
 
-# mlflow
+# Define the base model and add a classifier on top
+base_model = MobileNet(input_shape=input_shape, include_top=False, weights="imagenet")
+base_model.trainable = False
+model = keras.Sequential([
+    base_model,
+    keras.layers.GlobalAveragePooling2D(),
+    keras.layers.Dense(128, activation="relu"),
+    keras.layers.Dense(2, activation="softmax")
+])
 
-# Set up MLflow tracking URI and experiment name
-mlflow.set_tracking_uri("http://172.16.51.127:5002")
-mlflow.set_experiment("rain-prediction-model")
+ 
 
-# Start an MLflow run
-with mlflow.start_run():
-    # Log model hyperparameters
-    mlflow.log_param("learning_rate", 0.00009)
-    mlflow.log_param("batch_size", 32)
-    mlflow.log_param("epochs", 150)
-    
-    # Log metrics
-    accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, average='weighted')
-    precision = precision_score(y_test, y_pred, average='weighted')
-    recall = recall_score(y_test, y_pred, average='weighted')
-    
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.log_metric("f1_score", f1)
-    mlflow.log_metric("precision", precision)
-    mlflow.log_metric("recall", recall)
-    
-    # Log classification report as an artifact
-    classification_rep = classification_report(y_test, y_pred)
-    with open("classification_report.txt", "w") as f:
-        f.write(classification_rep)
-    mlflow.log_artifact("classification_report.txt")
-    
-    # Log confusion matrix plot as an artifact
-    plt.savefig("confusion_matrix.png")
-    mlflow.log_artifact("confusion_matrix.png")
-    
-    # Log the trained model
-    mlflow.keras.log_model(model, "model", registered_model_name="RainPredictionModel")
-    print("MLFLOW report and confusion matrix generated successfully!")
-    print("mlflow test 1")
+keras.utils.plot_model(model, show_shapes=True)
+model.compile(
+    loss="sparse_categorical_crossentropy",
+    optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+    metrics=["accuracy"],
+)
+
+ 
+
+logdir = os.path.join("logs", experiment_name, run_name)
+tb_callback = keras.callbacks.TensorBoard(log_dir=logdir, write_graph=True, histogram_freq=1)
+
+ 
+
+# Train the model and log metrics and the model itself to MLflow
+
+history = model.fit(
+    augmented_train_dataset,
+    epochs=num_epochs,
+    validation_data=val_dataset,
+    verbose=2,
+    callbacks=[tb_callback]
+)
+
+ 
+mlflow.set_tracking_uri("http://172.16.51.127:5002") 
+# Set the experiment name and create an MLflow run
+
+mlflow.set_experiment(experiment_name)
+with mlflow.start_run(run_name = run_name) as mlflow_run:
+    mlflow.set_experiment_tag("base_model", "MobileNet")
+    mlflow.set_tag("optimizer", "keras.optimizers.Adam")
+    mlflow.set_tag("loss", "sparse_categorical_crossentropy")
+ 
+    mlflow.keras.log_model(model, "model")
+    mlflow.log_param("learning_rate", learning_rate)
+    mlflow.log_param("num_epochs", num_epochs)
+    mlflow.log_param("batch_size", batch_size)
+    mlflow.log_param("input_shape", input_shape)
+
+    mlflow.log_metric("train_loss", history.history["loss"][-1])
+    mlflow.log_metric("train_acc", history.history["accuracy"][-1])
+    mlflow.log_metric("val_loss", history.history["val_loss"][-1])
+    mlflow.log_metric("val_acc", history.history["val_accuracy"][-1])
+
+    mlflow.log_artifact("model.png", "model_plot")
+
+    mlflow_run_id = mlflow_run.info.run_id
+    print("MLFlow Run ID: ", mlflow_run_id)
+
+ 
+
+#%load_ext tensorboard
+
+#%tensorboard --logdir logs/cat-dog-classifier-mobilenet
+
+ 
+
+img = keras.preprocessing.image.load_img(
+    os.path.join(image_path, "cat/Image_17.jpg"), target_size=input_shape
+)
+img_array = keras.preprocessing.image.img_to_array(img)
+img_array = tf.expand_dims(img_array, 0)
+ 
+predictions = model.predict(img_array)
+print("This image is {:.2f}% cat and {:.2f}% dog.".format(100 * float(predictions[0][0]),
+                                                          100 * float(predictions[0][1])))
+
+plt.imshow(img_array[0].numpy().astype("uint8"))
 
 
+# Logged model in MLFlow
+logged_model_path = f"runs:/{mlflow_run_id}/model"
+ 
+# Load model as a Keras model
+loaded_model = mlflow.keras.load_model(logged_model_path)
+predictions = loaded_model.predict(img_array)
+print("This image is {:.2f}% cat and {:.2f}% dog.".format(100 * float(predictions[0][0]),
+                                                          100 * float(predictions[0][1])))
+
+ 
+
+plt.imshow(img_array[0].numpy().astype("uint8"))
+model_name = "cat_dog_classifier"
+model_version = 1
+print("MLFlow Run ID: ", mlflow_run_id)
 
 
+with mlflow.start_run(run_id=mlflow_run_id) as run:
+    result = mlflow.register_model(
+        logged_model_path,
+        model_name
+    )
+
+# Load model as a Keras model
+loaded_model = mlflow.keras.load_model(
+    model_uri=f"models:/{model_name}/{model_version}"
+)
 
 
+predictions = loaded_model.predict(img_array)
+print("This image is {:.2f}% cat and {:.2f}% dog.".format(100 * float(predictions[0][0]), 100 * float(predictions[0][1])))
+
+ 
+plt.imshow(img_array[0].numpy().astype("uint8"))
+#client = mlflow.tracking.MlflowClient()
+client = MlflowClient()
+# client.transition_model_version_stage(
+#     name=model_name,
+#     version=model_version,
+#     stage="Production"
+# )
 
 
+client.transition_model_version_stage(
+    name="cat_dog_classifier",  # Model name
+    version=1,                  # Model version
+    stage="Staging"             # Desired stage: "Staging" or "Production"
+)
 
+ 
 
+# Transition model to Production
+
+client.transition_model_version_stage(
+    name="cat_dog_classifier",
+    version=1,
+    stage="Production"
+)
+
+ 
+
+# Load model as a Keras model
+loaded_model = mlflow.keras.load_model(
+    model_uri=f"models:/{model_name}/production"
+)
+
+predictions = loaded_model.predict(img_array)
+print("This image is {:.2f}% cat and {:.2f}% dog.".format(100 * float(predictions[0][0]),100 * float(predictions[0][1])))
+
+plt.imshow(img_array[0].numpy().astype("uint8"))
