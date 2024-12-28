@@ -3,3 +3,5 @@ mlflow
 bing-image-downloader
 numpy
 matplotlib
+pydot
+graphviz
