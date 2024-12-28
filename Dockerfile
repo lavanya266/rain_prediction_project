@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     apt-utils \
     graphviz \
-    && pip install pydot
+    && pip install pydot \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and activate virtual environment
@@ -33,3 +33,4 @@ EXPOSE 5002
 
 # Run the application
 CMD ["python", "newmlops.py"]
+
