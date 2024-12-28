@@ -18,15 +18,15 @@ import imghdr
 
 
 image_path = "./data/cat_dogs/"
-# def download_images(query, limit, output_dir):
-#     downloader.download(query,
-#                           limit=limit,
-#                           output_dir=output_dir,
-#                           adult_filter_off=True,
-#                           force_replace=False,
-#                           timeout=60)
-# download_images("cat", 20, image_path)
-# download_images("dog", 20, image_path)
+def download_images(query, limit, output_dir):
+     downloader.download(query,
+                           limit=limit,
+                           output_dir=output_dir,
+                           adult_filter_off=True,
+                           force_replace=False,
+                           timeout=60)
+ download_images("cat", 20, image_path)
+ download_images("dog", 20, image_path)
 
  
 
