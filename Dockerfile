@@ -5,7 +5,7 @@ FROM tensorflow/tensorflow:2.12.0
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install required system packages
+# Install required system packages, including apt-utils
 RUN apt-get update && apt-get install -y \
     wget \
     python3-pip \
@@ -33,4 +33,5 @@ EXPOSE 5002
 
 # Run the application
 CMD ["python", "newmlops.py"]
+
 
