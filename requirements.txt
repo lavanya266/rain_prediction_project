@@ -1,7 +1,5 @@
-pandas
-numpy
-scikit-learn
-matplotlib
-seaborn
-tensorflow
+tensorflow==2.12.0
 mlflow
+bing-image-downloader
+numpy
+matplotlib
